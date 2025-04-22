@@ -1,0 +1,436 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SecureVote</title>
+    <style>
+        /* [Keep all your original CSS styles] */
+        :root {
+            --primary: #2563eb;
+            --primary-dark: #1d4ed8;
+            --secondary: #10b981;
+            --danger: #ef4444;
+            --warning: #f59e0b;
+            --gray-light: #f3f4f6;
+            --gray: #9ca3af;
+            --gray-dark: #4b5563;
+            --text: #1f2937;
+            --bg: #ffffff;
+        }
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+        
+        body {
+            background-color: #f9fafb;
+            color: var(--text);
+            line-height: 1.5;
+        }
+        
+        header {
+            background-color: var(--bg);
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+            padding: 1rem 2rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .logo {
+            display: flex;
+            align-items: center;
+            font-weight: 700;
+            font-size: 1.5rem;
+            color: var(--primary);
+        }
+        
+        main {
+            max-width: 1200px;
+            margin: 2rem auto;
+            padding: 0 1rem;
+        }
+        
+        .container {
+            background-color: var(--bg);
+            border-radius: 0.5rem;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+            padding: 2rem;
+            margin-bottom: 2rem;
+        }
+        
+        .btn {
+            display: inline-block;
+            padding: 0.75rem 1.5rem;
+            border-radius: 0.375rem;
+            font-weight: 500;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.2s;
+            border: none;
+        }
+        
+        .btn-primary {
+            background-color: var(--primary);
+            color: white;
+        }
+        
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0,0,0,0.5);
+            z-index: 1000;
+            justify-content: center;
+            align-items: center;
+        }
+        
+        .modal-content {
+            background-color: white;
+            padding: 2rem;
+            border-radius: 0.5rem;
+            width: 90%;
+            max-width: 600px;
+        }
+        
+        .election-card {
+            border: 1px solid var(--gray-light);
+            border-radius: 0.5rem;
+            padding: 1.5rem;
+            margin-bottom: 1rem;
+        }
+        
+    </style>
+</head>
+<body>
+    <header>
+        <div class="logo">SecureVote</div>
+        <div id="auth-buttons">
+            <button id="admin-login-btn">Admin Login</button>
+            <button id="voter-login-btn">Voter Login</button>
+        </div>
+    </header>
+
+    <main>
+        <!-- Admin Panel (hidden by default) -->
+        <div id="admin-panel" class="container" style="display:none;">
+            <h2>Admin Dashboard</h2>
+            <button id="create-election-btn">Create New Election</button>
+            <div id="election-results"></div>
+        </div>
+
+        <!-- Voter Panel (hidden by default) -->
+        <div id="voter-panel" class="container" style="display:none;">
+            <h2>Active Elections</h2>
+            <div id="elections-list"></div>
+            <div id="voting-section" style="display:none;">
+                <h3>Cast Your Vote</h3>
+                <div id="candidates-list"></div>
+                <div class="timer-container">
+                    <div>Time Remaining: <span id="voting-timer">10</span>s</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Login Modals -->
+        <div id="admin-login-modal" class="modal">
+            <div class="modal-content">
+                <h2>Admin Login</h2>
+                <input type="password" id="admin-code" placeholder="Enter admin code">
+                <button id="submit-admin-login">Login</button>
+                <p id="admin-login-error" style="color:red;"></p>
+            </div>
+        </div>
+
+        <div id="voter-login-modal" class="modal">
+            <div class="modal-content">
+                <h2>Voter Verification</h2>
+                <input type="text" id="voter-code" placeholder="Enter voter code">
+                <button id="submit-voter-login">Verify</button>
+                <p id="voter-login-error" style="color:red;"></p>
+            </div>
+        </div>
+
+        <!-- Election Creation Modal -->
+        <div id="election-creation-modal" class="modal">
+            <div class="modal-content">
+                <h2>Create Election</h2>
+                <form id="election-form">
+                    <input type="text" id="election-title" placeholder="Election Title" required>
+                    <input type="datetime-local" id="election-start" required>
+                    <input type="datetime-local" id="election-end" required>
+                    <div id="candidates-container">
+                        <div class="candidate-input">
+                            <input type="text" class="candidate-name" placeholder="Candidate Name" required>
+                            <input type="text" class="candidate-party" placeholder="Party" required>
+                        </div>
+                    </div>
+                    <button type="button" id="add-candidate">Add Candidate</button>
+                    <button type="submit">Create Election</button>
+                </form>
+            </div>
+        </div>
+    </main>
+
+    <script>
+        const API_BASE_URL = 'http://localhost:5000/api';
+        let adminToken = null;
+        let currentVoterCode = null;
+        let timerInterval;
+
+        // DOM Elements
+        const adminPanel = document.getElementById('admin-panel');
+        const voterPanel = document.getElementById('voter-panel');
+        const electionsList = document.getElementById('elections-list');
+        const votingSection = document.getElementById('voting-section');
+        const candidatesList = document.getElementById('candidates-list');
+
+        // Authentication
+        document.getElementById('admin-login-btn').addEventListener('click', () => {
+            document.getElementById('admin-login-modal').style.display = 'flex';
+        });
+
+        document.getElementById('voter-login-btn').addEventListener('click', () => {
+            document.getElementById('voter-login-modal').style.display = 'flex';
+        });
+
+        document.getElementById('submit-admin-login').addEventListener('click', async () => {
+            const code = document.getElementById('admin-code').value;
+            try {
+                const response = await fetch(`${API_BASE_URL}/admin/login`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ code })
+                });
+                const data = await response.json();
+                
+                if (data.success) {
+                    adminToken = data.token;
+                    document.getElementById('admin-login-modal').style.display = 'none';
+                    adminPanel.style.display = 'block';
+                    voterPanel.style.display = 'none';
+                    loadAdminData();
+                } else {
+                    document.getElementById('admin-login-error').textContent = data.message;
+                }
+            } catch (error) {
+                console.error('Admin login error:', error);
+            }
+        });
+
+        document.getElementById('submit-voter-login').addEventListener('click', async () => {
+            const code = document.getElementById('voter-code').value;
+            try {
+                const response = await fetch(`${API_BASE_URL}/voter/verify`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ code })
+                });
+                const data = await response.json();
+                
+                if (data.success) {
+                    currentVoterCode = code;
+                    document.getElementById('voter-login-modal').style.display = 'none';
+                    voterPanel.style.display = 'block';
+                    adminPanel.style.display = 'none';
+                    loadActiveElections();
+                } else {
+                    document.getElementById('voter-login-error').textContent = data.message;
+                }
+            } catch (error) {
+                console.error('Voter login error:', error);
+            }
+        });
+
+        // Election Management
+        document.getElementById('create-election-btn').addEventListener('click', () => {
+            document.getElementById('election-creation-modal').style.display = 'flex';
+        });
+
+        document.getElementById('add-candidate').addEventListener('click', () => {
+            const container = document.getElementById('candidates-container');
+            const newCandidate = document.createElement('div');
+            newCandidate.className = 'candidate-input';
+            newCandidate.innerHTML = `
+                <input type="text" class="candidate-name" placeholder="Candidate Name" required>
+                <input type="text" class="candidate-party" placeholder="Party" required>
+                <button type="button" class="remove-candidate">Remove</button>
+            `;
+            container.appendChild(newCandidate);
+            
+            newCandidate.querySelector('.remove-candidate').addEventListener('click', () => {
+                container.removeChild(newCandidate);
+            });
+        });
+
+        document.getElementById('election-form').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            
+            const candidates = [];
+            document.querySelectorAll('.candidate-input').forEach(input => {
+                candidates.push({
+                    name: input.querySelector('.candidate-name').value,
+                    party: input.querySelector('.candidate-party').value
+                });
+            });
+            
+            const electionData = {
+                title: document.getElementById('election-title').value,
+                start_date: document.getElementById('election-start').value,
+                end_date: document.getElementById('election-end').value,
+                candidates: candidates
+            };
+            
+            try {
+                const response = await fetch(`${API_BASE_URL}/admin/elections`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': adminToken
+                    },
+                    body: JSON.stringify(electionData)
+                });
+                
+                const data = await response.json();
+                if (data.success) {
+                    alert('Election created successfully!');
+                    document.getElementById('election-creation-modal').style.display = 'none';
+                    loadAdminData();
+                } else {
+                    alert('Error: ' + data.message);
+                }
+            } catch (error) {
+                console.error('Error creating election:', error);
+            }
+        });
+
+        // Voting Functions
+        function startVotingTimer() {
+            let timeLeft = 10;
+            document.getElementById('voting-timer').textContent = timeLeft;
+            
+            timerInterval = setInterval(() => {
+                timeLeft--;
+                document.getElementById('voting-timer').textContent = timeLeft;
+                
+                if (timeLeft <= 0) {
+                    clearInterval(timerInterval);
+                    alert('Time expired! Please login again.');
+                    voterPanel.style.display = 'none';
+                }
+            }, 1000);
+        }
+
+        async function castVote(candidateId) {
+            try {
+                const response = await fetch(`${API_BASE_URL}/vote`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        candidate_id: candidateId,
+                        voter_code: currentVoterCode
+                    })
+                });
+                
+                const data = await response.json();
+                if (data.success) {
+                    alert('Vote submitted successfully!');
+                    clearInterval(timerInterval);
+                    votingSection.style.display = 'none';
+                } else {
+                    alert('Error: ' + data.message);
+                }
+            } catch (error) {
+                console.error('Error submitting vote:', error);
+            }
+        }
+
+        // Data Loading
+        async function loadAdminData() {
+            try {
+                const response = await fetch(`${API_BASE_URL}/results`);
+                const data = await response.json();
+                
+                let html = '<h3>Election Results</h3>';
+                if (data.results && data.results.length > 0) {
+                    html += `<p>Total Votes: ${data.total_votes}</p>`;
+                    html += '<ul>';
+                    data.results.forEach(result => {
+                        html += `<li>${result.name} (${result.party}): ${result.votes} votes (${result.percentage}%)</li>`;
+                    });
+                    html += '</ul>';
+                } else {
+                    html += '<p>No results available</p>';
+                }
+                
+                document.getElementById('election-results').innerHTML = html;
+            } catch (error) {
+                console.error('Error loading admin data:', error);
+            }
+        }
+
+        async function loadActiveElections() {
+            try {
+                const response = await fetch(`${API_BASE_URL}/elections/active`);
+                const elections = await response.json();
+                
+                let html = '';
+                elections.forEach(election => {
+                    html += `
+                        <div class="election-card">
+                            <h3>${election.title}</h3>
+                            <p>${new Date(election.start_date).toLocaleString()} to ${new Date(election.end_date).toLocaleString()}</p>
+                            <button class="btn btn-primary" onclick="viewElection('${election.id}')">View Candidates</button>
+                        </div>
+                    `;
+                });
+                
+                electionsList.innerHTML = html || '<p>No active elections</p>';
+            } catch (error) {
+                console.error('Error loading elections:', error);
+            }
+        }
+
+        async function viewElection(electionId) {
+            try {
+                const response = await fetch(`${API_BASE_URL}/elections/active`);
+                const elections = await response.json();
+                const election = elections.find(e => e.id === electionId);
+                
+                let html = '<h3>Candidates</h3><ul>';
+                election.candidates.forEach(candidate => {
+                    html += `
+                        <li>
+                            ${candidate.name} (${candidate.party})
+                            <button class="btn btn-primary" onclick="castVote('${candidate.id}')">Vote</button>
+                        </li>
+                    `;
+                });
+                html += '</ul>';
+                
+                candidatesList.innerHTML = html;
+                votingSection.style.display = 'block';
+                startVotingTimer();
+            } catch (error) {
+                console.error('Error viewing election:', error);
+            }
+        }
+
+        // Make functions available globally
+        window.viewElection = viewElection;
+        window.castVote = castVote;
+    </script>
+</body>
+</html>
